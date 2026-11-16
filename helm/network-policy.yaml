@@ -1,0 +1,74 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: default-deny }
+spec:
+  podSelector: { }
+  policyTypes: [ Ingress, Egress ]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: dns }
+spec:
+  podSelector: { }
+  policyTypes: [ Egress ]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports: [ { protocol: UDP, port: 53 }, { protocol: TCP, port: 53 } ]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: gateway-paths }
+spec:
+  podSelector: { matchLabels: { app: gateway } }
+  policyTypes: [ Ingress, Egress ]
+  ingress:
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
+      ports: [ { port: 8080 } ]
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
+      ports: [ { port: 9080 } ]
+  egress:
+    - to:
+        - podSelector: { matchLabels: { role: upstream } }
+      ports: [ { port: 8091 }, { port: 8092 }, { port: 8093 } ]
+    - to:
+        - podSelector: { matchLabels: { app: control } }
+      ports: [ { port: 8081 } ]
+    - to:
+        - podSelector: { matchLabels: { app: redis } }
+      ports: [ { port: 6379 } ]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: upstream-ingress }
+spec:
+  podSelector: { matchLabels: { role: upstream } }
+  policyTypes: [ Ingress ]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: gateway } }
+      ports: [ { port: 8091 }, { port: 8092 }, { port: 8093 } ]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: control-paths }
+spec:
+  podSelector: { matchLabels: { app: control } }
+  policyTypes: [ Ingress, Egress ]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: gateway } }
+      ports: [ { port: 8081 } ]
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: monitoring } }
+      ports: [ { port: 9081 } ]
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app: redis } }
+      ports: [ { port: 6379 } ]
+    - to:
+        - podSelector: { matchLabels: { app: postgres } }
+      ports: [ { port: 5432 } ]

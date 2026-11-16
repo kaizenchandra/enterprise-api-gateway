@@ -1,0 +1,47 @@
+name: gateway-verify
+on: [ push, pull_request ]
+permissions: { contents: read }
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: enterprise-api-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: mvn -B clean verify org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom -DoutputFormat=json
+      - run: python3 scripts/scan_dependencies.py
+      - run: bash scripts/build-images.sh
+      - run: docker compose --env-file docker/.env -f docker/compose.yml up --no-build -d --wait --wait-timeout 600
+      - run: python3 scripts/demo.py
+      - run: python3 scripts/distributed_http_test.py
+      - run: python3 scripts/acceptance.py --faults
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix gateway-admin-portal
+      - run: npm test --prefix gateway-admin-portal
+      - run: npm audit --prefix gateway-admin-portal --audit-level=moderate
+      - run: bash scripts/scan_images.sh
+      - run: TRACING_ENABLED=true docker compose --env-file docker/.env -f docker/compose.yml --profile monitoring up --no-build -d --wait --wait-timeout 600
+      - run: python3 scripts/observability_test.py
+      - run: python3 scripts/dashboard_test.py
+      - run: python3 scripts/verify_images.py
+      - if: always()
+        run: docker compose --env-file docker/.env -f docker/compose.yml logs > results-compose.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-evidence
+          path: |
+            enterprise-api-gateway/results/
+            !enterprise-api-gateway/results/trivy-cache/
+            enterprise-api-gateway/results-compose.log
+            enterprise-api-gateway/**/target/surefire-reports/
+      - if: always()
+        run: docker compose --env-file docker/.env -f docker/compose.yml --profile monitoring down -v

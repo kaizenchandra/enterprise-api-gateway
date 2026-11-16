@@ -1,0 +1,59 @@
+server:
+  port: 8080
+  shutdown: graceful
+  max-http-request-header-size: 16KB
+spring:
+  application.name: gateway-data-plane
+  main.web-application-type: reactive
+  data.redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    timeout: 5s
+  cloud.gateway.server.webflux:
+    httpclient:
+      connect-timeout: 1000
+      response-timeout: 3s
+      pool:
+        type: fixed
+        max-connections: 512
+        acquire-timeout: 500
+    forwarded.enabled: false
+    x-forwarded.enabled: false
+    metrics.enabled: true
+control:
+  url: ${CONTROL_URL:http://localhost:8081}
+  token: ${CONTROL_TOKEN}
+upstream.allowed: ${UPSTREAM_ALLOWED:http://localhost:8091,http://localhost:8092,http://localhost:8093}
+security:
+  issuer: ${OIDC_ISSUER:http://localhost:8180/realms/gateway}
+  jwks: ${OIDC_JWKS:http://localhost:8180/realms/gateway/protocol/openid-connect/certs}
+management:
+  server.port: 9080
+  endpoints.web.exposure.include: health,prometheus
+  endpoint.health.probes.enabled: true
+  tracing.sampling.probability: 0.1
+logging.structured.format.console: ecs
+resilience4j.circuitbreaker.configs.default:
+  sliding-window-size: 50
+  minimum-number-of-calls: 20
+  failure-rate-threshold: 50
+  wait-duration-in-open-state: 10s
+
+resilience4j.timelimiter.configs.default.timeout-duration: 30s
+
+management.endpoint.health.group.readiness.include: readinessState,configurationHealth
+
+security.identity-private-key: ${IDENTITY_PRIVATE_KEY}
+
+spring.cloud.circuitbreaker.resilience4j.disable-time-limiter: true
+
+spring.reactor.context-propagation: auto
+
+security.cors-origins: ${CORS_ORIGINS:}
+
+# Prometheus metrics and local structured logs; only traces use OTLP.
+management.otlp.metrics.export.enabled: false
+management.logging.export.enabled: false
+
+# Admission owns explicit per-route/process concurrency; avoid an independent default 25-call cap.
+spring.cloud.circuitbreaker.bulkhead.resilience4j.enabled: false

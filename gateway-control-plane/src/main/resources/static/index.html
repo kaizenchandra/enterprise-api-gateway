@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width" name="viewport">
+    <title>Enterprise Gateway Administration</title>
+    <link href="/style.css" rel="stylesheet">
+    <script defer src="/app.js"></script>
+</head>
+<body>
+<header><h1>Enterprise Gateway</h1>
+    <p>Control plane administration</p></header>
+<main>
+    <section><h2>Session</h2><label>Administrator access token<input autocomplete="off" id="token"
+                                                                     type="password"></label>
+        <p>Use an access token for audience gateway-admin. Tokens and issued key secrets stay in this tab; they are
+            never saved in browser storage.</p></section>
+    <section><h2>Resources and drafts</h2>
+        <p>Changes activate only after publishing. Routes may reference rateLimitPolicyId, quotaPolicyId and planId;
+            named policies are resolved and validated together at publication.</p>
+        <div class="toolbar"><label>Resource<select id="resource">
+            <option>apis</option>
+            <option>routes</option>
+            <option>consumers</option>
+            <option>rate-limits</option>
+            <option>quotas</option>
+            <option>plans</option>
+            <option>configurations/versions</option>
+            <option>gateways</option>
+            <option>audit-events</option>
+        </select></label>
+            <button id="load">Refresh list</button>
+            <button id="template">New template</button>
+        </div>
+        <div aria-label="Resource records" id="records"></div>
+        <div class="toolbar"><label>Resource / consumer / key ID<input id="id"></label><label>Expected revision
+            (If-Match)<input id="revision" min="0" type="number"></label></div>
+        <label>JSON document<textarea id="body" spellcheck="false">{}</textarea></label>
+        <div class="toolbar">
+            <button id="create">Create draft</button>
+            <button id="update">Replace draft</button>
+            <button class="danger" id="remove">Deactivate / delete draft</button>
+        </div>
+    </section>
+    <section><h2>Consumer keys</h2>
+        <p>Use the consumer ID for issuance and inspection. Use the key ID for rotation or revocation. Issuance/rotation
+            use JSON scopes, roles and days.</p>
+        <div class="toolbar">
+            <button id="key">Issue key</button>
+            <button id="keys">Inspect key status</button>
+            <button id="rotate">Rotate key</button>
+            <button class="danger" id="revoke">Revoke key</button>
+        </div>
+    </section>
+    <section><h2>Usage and quota corrections</h2>
+        <button id="usage">Load usage for consumer ID</button>
+        <div id="usage-table"></div>
+        <div class="toolbar"><label>Verified tenant<input id="quota-tenant" value="demo"></label><label>API ID<input
+                id="quota-api"></label>
+            <button id="adjust">Apply quota correction</button>
+        </div>
+        <p>Correction JSON requires dailyUsed, monthlyUsed, idempotencyKey and reason. Use the usage revision in
+            If-Match; zero values reset counters. Every correction is audited.</p></section>
+    <section><h2>Publish and recover</h2>
+        <div class="toolbar">
+            <button id="publish">Publish validated snapshot</button>
+            <label>Historical version<input id="version" min="1" type="number"></label>
+            <button id="rollback">Roll back as a new version</button>
+        </div>
+        <p>Review gateway versions and lastSeen in the Gateways resource. A change is eventually reconciled by every
+            healthy instance; existing requests retain their captured policy.</p></section>
+    <section><h2>Operation result</h2>
+        <pre aria-live="polite" id="result" role="status"></pre>
+        <button id="clear">Clear result / secret</button>
+    </section>
+</main>
+</body>
+</html>

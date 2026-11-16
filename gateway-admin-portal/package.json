@@ -1,0 +1,11 @@
+{
+  "name": "gateway-admin-portal-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node portal.test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0"
+  }
+}

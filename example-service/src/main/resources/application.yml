@@ -1,0 +1,12 @@
+server:
+  port: ${PORT:8091}
+  shutdown: graceful
+spring.application.name: ${SERVICE_NAME:orders}
+management.endpoints.web.exposure.include: health,prometheus
+logging.structured.format.console: ecs
+
+spring.reactor.context-propagation: auto
+
+# Prometheus metrics and local structured logs; only traces use OTLP.
+management.otlp.metrics.export.enabled: false
+management.logging.export.enabled: false

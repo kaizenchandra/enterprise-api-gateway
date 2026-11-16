@@ -1,0 +1,145 @@
+name: enterprise-gateway
+x-logging: &bounded-logs
+  driver: json-file
+  options: { max-size: 10m, max-file: '3' }
+x-env: &env
+  JAVA_TOOL_OPTIONS: -Xmx192m -XX:ActiveProcessorCount=2
+  MANAGEMENT_TRACING_ENABLED: ${TRACING_ENABLED:-false}
+  CORS_ORIGINS: https://app.example.test
+  CONTROL_CACHE_FILE: /app/state/snapshot.json
+  MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://collector:4318/v1/traces
+  SPRING_DATA_REDIS_TIMEOUT: 5s
+  REDIS_HOST: redis
+  CONTROL_TOKEN: ${CONTROL_TOKEN:?set CONTROL_TOKEN in .env}
+  OIDC_ISSUER: http://localhost:48180/realms/gateway
+  OIDC_JWKS: http://keycloak:8080/realms/gateway/protocol/openid-connect/certs
+  UPSTREAM_ALLOWED: http://orders:8091,http://payments:8092,http://inventory:8093,ws://orders:8091
+services:
+  postgres:
+    logging: *bounded-logs
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: gateway
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?set DATABASE_PASSWORD}
+    volumes: [ postgres:/var/lib/postgresql/data ]
+    healthcheck:
+      test: [ CMD-SHELL, 'pg_isready -U gateway' ]
+      interval: 3s
+      retries: 30
+  redis:
+    logging: *bounded-logs
+    image: redis:7.4-alpine
+    command: [ redis-server, --appendonly, 'yes', --appendfsync, always, --maxmemory, 256mb, --maxmemory-policy, noeviction ]
+    volumes: [ redis:/data ]
+    healthcheck:
+      test: [ CMD, redis-cli, ping ]
+      interval: 3s
+      retries: 30
+  keycloak:
+    logging: *bounded-logs
+    image: quay.io/keycloak/keycloak:26.4.7
+    environment:
+      JAVA_OPTS_KC_HEAP: -Xms64m -Xmx256m
+      JAVA_OPTS_APPEND: -XX:ActiveProcessorCount=2
+    mem_limit: 512m
+    command: [ start-dev, --import-realm, --hostname, 'http://localhost:48180' ]
+    volumes: [ './realm.json:/opt/keycloak/data/import/realm.json:ro' ]
+    ports: [ '127.0.0.1:48180:8080' ]
+  control:
+    logging: *bounded-logs
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args: { MODULE: gateway-control-plane, SOURCE_REVISION: "${SOURCE_REVISION:-development}" }
+    environment:
+      <<: *env
+      DATABASE_URL: jdbc:postgresql://postgres:5432/gateway
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+    ports: [ '127.0.0.1:48081:8081' ]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+  gateway:
+    logging: *bounded-logs
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args: { MODULE: gateway-data-plane, SOURCE_REVISION: "${SOURCE_REVISION:-development}" }
+    environment:
+      <<: *env
+      IDENTITY_PRIVATE_KEY: ${IDENTITY_PRIVATE_KEY:?run scripts/init-env.sh}
+      CONTROL_URL: http://control:8081
+    volumes: [ 'gateway-state:/app/state' ]
+    ports: [ '127.0.0.1:48080:8080','127.0.0.1:49080:9080' ]
+    depends_on:
+      control: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      orders: { condition: service_healthy }
+      payments: { condition: service_healthy }
+      inventory: { condition: service_healthy }
+  gateway2:
+    logging: *bounded-logs
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args: { MODULE: gateway-data-plane, SOURCE_REVISION: "${SOURCE_REVISION:-development}" }
+    environment:
+      <<: *env
+      IDENTITY_PRIVATE_KEY: ${IDENTITY_PRIVATE_KEY:?run scripts/init-env.sh}
+      CONTROL_MAX_STALE_SECONDS: ${SECONDARY_MAX_STALE_SECONDS:-300}
+      CONTROL_URL: http://control:8081
+    volumes: [ 'gateway2-state:/app/state' ]
+    ports: [ '127.0.0.1:48082:8080' ]
+    depends_on:
+      control: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      orders: { condition: service_healthy }
+      payments: { condition: service_healthy }
+      inventory: { condition: service_healthy }
+  orders:
+    logging: *bounded-logs
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args: { MODULE: example-service, SOURCE_REVISION: "${SOURCE_REVISION:-development}" }
+    environment: { PORT: 8091, HEALTH_PORT: "8091", SERVICE_NAME: orders, IDENTITY_PUBLIC_KEY: "${IDENTITY_PUBLIC_KEY:?run scripts/init-env.sh}", JAVA_TOOL_OPTIONS: "-Xmx128m -XX:ActiveProcessorCount=2", MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: "http://collector:4318/v1/traces", MANAGEMENT_TRACING_ENABLED: "${TRACING_ENABLED:-false}" }
+  payments:
+    logging: *bounded-logs
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args: { MODULE: example-service, SOURCE_REVISION: "${SOURCE_REVISION:-development}" }
+    environment: { PORT: 8092, HEALTH_PORT: "8092", SERVICE_NAME: payments, IDENTITY_PUBLIC_KEY: "${IDENTITY_PUBLIC_KEY:?run scripts/init-env.sh}", JAVA_TOOL_OPTIONS: "-Xmx128m -XX:ActiveProcessorCount=2", MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: "http://collector:4318/v1/traces", MANAGEMENT_TRACING_ENABLED: "${TRACING_ENABLED:-false}" }
+  inventory:
+    logging: *bounded-logs
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args: { MODULE: example-service, SOURCE_REVISION: "${SOURCE_REVISION:-development}" }
+    environment: { PORT: 8093, HEALTH_PORT: "8093", SERVICE_NAME: inventory, IDENTITY_PUBLIC_KEY: "${IDENTITY_PUBLIC_KEY:?run scripts/init-env.sh}", JAVA_TOOL_OPTIONS: "-Xmx128m -XX:ActiveProcessorCount=2", MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: "http://collector:4318/v1/traces", MANAGEMENT_TRACING_ENABLED: "${TRACING_ENABLED:-false}" }
+  prometheus:
+    logging: *bounded-logs
+    profiles: [ monitoring ]
+    image: prom/prometheus:v3.7.3
+    volumes: [ './prometheus.yml:/etc/prometheus/prometheus.yml:ro' ]
+    ports: [ '127.0.0.1:${PROMETHEUS_PORT:-49090}:9090' ]
+  collector:
+    logging: *bounded-logs
+    profiles: [ monitoring ]
+    image: otel/opentelemetry-collector-contrib:0.139.0
+    command: [ '--config=/etc/otelcol/config.yml' ]
+    volumes: [ './otel-collector.yml:/etc/otelcol/config.yml:ro' ]
+  grafana:
+    logging: *bounded-logs
+    profiles: [ monitoring ]
+    image: grafana/grafana:12.3.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-local-change-before-exposing}
+    ports: [ '127.0.0.1:${GRAFANA_PORT:-48030}:3000' ]
+    volumes: [ './grafana:/etc/grafana/provisioning:ro' ]
+volumes:
+  postgres: { }
+  redis: { }
+  gateway-state: { }
+  gateway2-state: { }

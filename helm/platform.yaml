@@ -1,0 +1,186 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: gateway }
+  strategy:
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: gateway }
+    spec:
+      terminationGracePeriodSeconds: 45
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001 }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: gateway }
+      containers:
+        - name: gateway
+          image: registry.example.invalid/gateway-data-plane:1.0.0
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: management, containerPort: 9080 }
+          resources:
+            requests: { cpu: '500m', memory: 512Mi }
+            limits: { cpu: '2', memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ ALL ] }
+          envFrom:
+            - configMapRef: { name: gateway-platform }
+          env:
+            - name: CONTROL_TOKEN
+              valueFrom: { secretKeyRef: { name: gateway-control, key: token } }
+            - name: IDENTITY_PRIVATE_KEY
+              valueFrom: { secretKeyRef: { name: gateway-identity, key: private-key } }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: management }
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: management }
+            initialDelaySeconds: 20
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: management }
+            initialDelaySeconds: 40
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: state, mountPath: /app/state }
+      volumes:
+        - name: state
+          emptyDir: { sizeLimit: 16Mi }
+        - name: tmp
+          emptyDir: { sizeLimit: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+spec:
+  selector: { app: gateway }
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: { app: gateway }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: control
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: control }
+  strategy:
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: { app: control }
+    spec:
+      terminationGracePeriodSeconds: 45
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001 }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app: control }
+      containers:
+        - name: control
+          image: registry.example.invalid/gateway-control-plane:1.0.0
+          ports:
+            - { name: http, containerPort: 8081 }
+            - { name: management, containerPort: 9081 }
+          resources:
+            requests: { cpu: '500m', memory: 512Mi }
+            limits: { cpu: '2', memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ ALL ] }
+          envFrom:
+            - configMapRef: { name: gateway-platform }
+          env:
+            - name: CONTROL_TOKEN
+              valueFrom: { secretKeyRef: { name: gateway-control, key: token } }
+            - name: DATABASE_PASSWORD
+              valueFrom: { secretKeyRef: { name: gateway-postgres, key: password } }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: management }
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: management }
+            initialDelaySeconds: 20
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: management }
+            initialDelaySeconds: 40
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: state, mountPath: /app/state }
+      volumes:
+        - name: state
+          emptyDir: { sizeLimit: 16Mi }
+        - name: tmp
+          emptyDir: { sizeLimit: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: control
+spec:
+  selector: { app: control }
+  ports:
+    - { name: http, port: 8081, targetPort: http }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: control
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels: { app: control }
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gateway
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: gateway }
+  minReplicas: 3
+  maxReplicas: 30
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 60 }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-platform
+data:
+  CONTROL_CACHE_FILE: /app/state/snapshot.json
+  CONTROL_URL: http://control:8081
+  REDIS_HOST: redis.gateway.svc.cluster.local
+  DATABASE_URL: jdbc:postgresql://postgres.gateway.svc.cluster.local:5432/gateway
+  OIDC_ISSUER: https://identity.example.invalid/realms/gateway
+  OIDC_JWKS: https://identity.example.invalid/realms/gateway/protocol/openid-connect/certs
+  UPSTREAM_ALLOWED: http://orders:8091,http://payments:8092,http://inventory:8093,ws://orders:8091

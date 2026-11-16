@@ -1,0 +1,7 @@
+**
+!gateway-*/
+!gateway-*/target/
+!gateway-*/target/*-1.0.0.jar
+!example-service/
+!example-service/target/
+!example-service/target/*-1.0.0.jar

@@ -1,0 +1,154 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: orders }
+  template:
+    metadata:
+      labels: { app: orders, role: upstream }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: backend
+          image: registry.example.invalid/example-service:1.0.0
+          ports: [ { name: http, containerPort: 8091 } ]
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: '1', memory: 512Mi }
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ ALL ] }
+          env:
+            - { name: PORT, value: '8091' }
+            - { name: SERVICE_NAME, value: orders }
+            - name: IDENTITY_PUBLIC_KEY
+              valueFrom: { secretKeyRef: { name: gateway-identity-public, key: public-key } }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+          volumeMounts: [ { name: tmp, mountPath: /tmp } ]
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 64Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders
+spec:
+  selector: { app: orders }
+  ports: [ { name: http, port: 8091, targetPort: http } ]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: payments }
+  template:
+    metadata:
+      labels: { app: payments, role: upstream }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: backend
+          image: registry.example.invalid/example-service:1.0.0
+          ports: [ { name: http, containerPort: 8092 } ]
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: '1', memory: 512Mi }
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ ALL ] }
+          env:
+            - { name: PORT, value: '8092' }
+            - { name: SERVICE_NAME, value: payments }
+            - name: IDENTITY_PUBLIC_KEY
+              valueFrom: { secretKeyRef: { name: gateway-identity-public, key: public-key } }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+          volumeMounts: [ { name: tmp, mountPath: /tmp } ]
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 64Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments
+spec:
+  selector: { app: payments }
+  ports: [ { name: http, port: 8092, targetPort: http } ]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: inventory }
+  template:
+    metadata:
+      labels: { app: inventory, role: upstream }
+    spec:
+      securityContext: { runAsNonRoot: true, runAsUser: 10001 }
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: backend
+          image: registry.example.invalid/example-service:1.0.0
+          ports: [ { name: http, containerPort: 8093 } ]
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: '1', memory: 512Mi }
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ ALL ] }
+          env:
+            - { name: PORT, value: '8093' }
+            - { name: SERVICE_NAME, value: inventory }
+            - name: IDENTITY_PUBLIC_KEY
+              valueFrom: { secretKeyRef: { name: gateway-identity-public, key: public-key } }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+          volumeMounts: [ { name: tmp, mountPath: /tmp } ]
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 64Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory
+spec:
+  selector: { app: inventory }
+  ports: [ { name: http, port: 8093, targetPort: http } ]

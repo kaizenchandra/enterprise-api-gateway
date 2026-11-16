@@ -1,0 +1,19 @@
+services:
+  control:
+    build:
+      dockerfile: docker/Dockerfile.runtime
+  gateway:
+    build:
+      dockerfile: docker/Dockerfile.runtime
+  gateway2:
+    build:
+      dockerfile: docker/Dockerfile.runtime
+  orders:
+    build:
+      dockerfile: docker/Dockerfile.runtime
+  payments:
+    build:
+      dockerfile: docker/Dockerfile.runtime
+  inventory:
+    build:
+      dockerfile: docker/Dockerfile.runtime
